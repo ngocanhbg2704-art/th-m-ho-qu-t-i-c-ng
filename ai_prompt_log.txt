@@ -1,0 +1,21 @@
+# NHẬT KÝ TƯƠNG TÁC VỚI AI (PROMPT LOG)
+
+## Prompt 1: Tìm hiểu về chi phí Storage của Index cột TEXT và BOOLEAN
+* **User Prompt:** "Trong MySQL, nếu tôi tạo Index trên một cột chứa văn bản dài (TEXT) và một cột kiểu BOOLEAN (0 và 1), thì điều này gây hại như thế nào đến bộ nhớ RAM, dung lượng Disk và bộ tối ưu hóa (Query Optimizer)?"
+* **Bài học rút ra:** 
+  - Index trên cột `TEXT` gây phình to cấu trúc cây B-Tree, tốn không gian đĩa cứng và làm ngốn RAM Buffer Pool khi MySQL load Index Page vào bộ nhớ.
+  - Index trên cột `BOOLEAN` có độ phân biệt (Cardinality) cực thấp, làm Query Optimizer đánh giá chi phí (Cost) và thường bỏ qua Index này để làm Full Table Scan, khiến Index trở nên vô dụng.
+
+---
+
+## Prompt 2: Tìm hiểu lý do MySQL bỏ qua Index low-cardinality
+* **User Prompt:** "Tại sao khi tôi truy vấn `SELECT * FROM Posts WHERE is_visible = 1` trên một bảng có hàng triệu dòng (trong đó 99% bài viết là visible = 1), MySQL lại quyết định quét toàn bảng (Full Table Scan) thay vì sử dụng Index idx_is_visible đã tạo?"
+* **Bài học rút ra:** 
+  - Khi tỷ lệ dòng thỏa mãn điều kiện quá lớn (trên 20-30% tổng số dòng), việc duyệt Index rồi thực hiện tra cứu ngược lại bảng chính (Bookmark Lookup) tốn nhiều I/O hơn việc đọc thẳng toàn bộ Data Pages từ trên xuống dưới.
+
+---
+
+## Prompt 3: Truy vấn thông số Storage từ information_schema
+* **User Prompt:** "Hãy cho tôi xem truy vấn SQL sử dụng bảng information_schema.TABLES để in ra kích thước Data và kích thước Index của bảng 'Posts' tính theo đơn vị Megabyte (MB)."
+* **Bài học rút ra:** 
+  - Biết cách sử dụng bảng `information_schema.TABLES` kết hợp với các cột `DATA_LENGTH` và `INDEX_LENGTH` để đo lường dung lượng thực tế của CSDL.

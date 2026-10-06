@@ -1,0 +1,28 @@
+# BÁO CÁO PHÂN TÍCH HIỆU NĂNG VÀ TỐI ƯU HÓA LƯU TRỮ - QUICKFEED
+
+## 1. Phân tích sự đánh đổi (Trade-off) giữa Read và Write
+Index giúp tăng tốc thao tác đọc (`SELECT`), nhưng gây ra chi phí cực kỳ đắt đỏ cho thao tác ghi (`INSERT`, `UPDATE`, `DELETE`). 
+
+Mỗi khi câu lệnh `INSERT` được thực hiện, MySQL không chỉ đơn thuần ghi dữ liệu vào Data Page của bảng `Posts`, mà còn phải đồng thời cập nhật lại cấu trúc cây **B-Tree** của tất cả 5 Index hiện có. Việc phải duy trì, sắp xếp lại nút (Node Splitting) trên 5 cây B-Tree song song làm gia tăng đáng kể thao tác I/O đĩa, dẫn đến hiện tượng nghẽn cổ chai (Timeout) khi đăng bài.
+
+## 2. Cardinality và Lý do loại bỏ 3 Index
+* **`idx_content` (Xóa):** Cột `TEXT` có kích thước vô cùng lớn. Việc tạo Index tiền tố 255 ký tự khiến dung lượng `INDEX_LENGTH` phình to gấp nhiều lần dung lượng dữ liệu thực. Nếu cần tìm kiếm nội dung, phải sử dụng cơ chế `FULLTEXT Index` thay vì B-Tree thông thường.
+* **`idx_post_type` (Xóa):** Độ phân giải dữ liệu (Cardinality) quá thấp (chỉ 3 giá trị `'TEXT'`, `'IMAGE'`, `'VIDEO'`). Bộ tối ưu hóa (Query Optimizer) của MySQL sẽ bỏ qua Index này và thực hiện Full Table Scan vì chi phí duyệt cây Index rồi tìm lại bảng chính lớn hơn.
+* **`idx_is_visible` (Xóa):** Cardinality chỉ gồm 2 giá trị (`0` và `1`). Việc tạo Index hoàn toàn không đem lại giá trị cho câu lệnh `SELECT`, ngược lại làm lãng phí dung lượng bộ nhớ.
+
+## 3. Kết quả tối ưu hóa
+Sau khi xóa 3 Index vô dụng (`idx_content`, `idx_post_type`, `idx_is_visible`), số lượng cây B-Tree cần cập nhật mỗi lần `INSERT` giảm từ 5 xuống còn 2 (`idx_user_id` và `idx_created_at`). 
+
+Dung lượng `INDEX_LENGTH` được giải phóng đáng kể, giúp phục hồi bộ nhớ đĩa (Disk Space) và tối ưu lại bộ nhớ đệm Buffer Pool trên RAM của MySQL Server.
+
+---
+
+## 4. Trả lời câu hỏi vấn đáp của Tech Lead
+1. **Điều gì xảy ra ở tầng vật lý khi INSERT bài viết có 5 Index?**
+   * **Trả lời:** MySQL thực hiện 1 thao tác Ghi dữ liệu thực và 5 thao tác Ghi cập nhật cây B-Tree. Khi dữ liệu lớn, việc ghi ngẫu nhiên (Random I/O) để chèn nút vào 5 cây Index làm nghẽn hàng đợi ghi đĩa, gây ra tình trạng Timeout 5-10 giây.
+
+2. **Cardinality là gì? Tại sao cột Giới tính hay Status lại là ứng cử viên tồi tệ?**
+   * **Trả lời:** Cardinality là mức độ phân biệt của dữ liệu trong một cột (số lượng giá trị duy nhất). Cột Giới tính hay Status có Cardinality cực thấp. Khi chạy `SELECT`, tỷ lệ dữ liệu trùng lặp quá cao khiến việc sử dụng B-Tree Index không giúp thu hẹp phạm vi tìm kiếm, MySQL sẽ chọn quét toàn bảng (Full Table Scan) cho nhanh.
+
+3. **Nếu bảng Posts chỉ là bảng Lịch sử (Archive) ít INSERT, hiếm UPDATE/DELETE thì có phải thảm họa không?**
+   * **Trả lời:** Trường hợp này việc có nhiều Index sẽ **bớt là thảm họa đối với thao tác Write** vì tần suất Ghi rất ít. Tuy nhiên, nó vẫn là **thảm họa về mặt Storage và RAM**, vì các Index không hiệu quả vẫn tiêu tốn tài nguyên ổ đĩa và làm tràn bộ nhớ đệm (Buffer Pool), làm ảnh hưởng đến hiệu năng chung của hệ thống.
